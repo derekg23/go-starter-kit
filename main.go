@@ -2,48 +2,17 @@ package main
 
 import (
   "fmt"
-  "html/template"
-  "net/http"
   "os"
-  "io/ioutil"
-  "path/filepath"
+  "gorm.io/driver/mysql"
+	"gorm.io/gorm"
 
   "github.com/joho/godotenv"
+
+  "untitledgoproject/routes"
+  "untitledgoproject/models"
 )
 
-func router(url string) string {
-  switch url {
-    case "/":
-      return "home.html"
-    default:
-      return "404.html"
-  }
-}
-
-func handleInternalServerError(w http.ResponseWriter, err error) {
-  if err != nil {
-    http.Error(w, err.Error(), http.StatusInternalServerError)
-    return
-  }
-}
-
-func handleRoute(route string, tmpl *template.Template) {
-  http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-    templateFilePath := filepath.Join("templates", "home.html")
-    templateContent, err := ioutil.ReadFile(templateFilePath)
-    handleInternalServerError(w, err)
-
-    // Convert the file content to template.HTML
-    data := struct {
-      Template template.HTML
-    } {
-      Template: template.HTML(templateContent),
-    }
-
-    err = tmpl.ExecuteTemplate(w, "index.html", data)
-    handleInternalServerError(w, err)
-  })
-}
+var db *gorm.DB
 
 func main() {
   err := godotenv.Load()
@@ -51,26 +20,23 @@ func main() {
     panic(err)
   }
 
-  appEnv := os.Getenv("APP_ENV")
-  
-  if appEnv == "local" {
-    // Dislay starting message
-    fmt.Println("\n\nYour website is now \x1b[1mrunning\x1b[0m")
-    fmt.Printf("To view the website, visit \x1b[1mhttp://localhost:8080\x1b[0m\n\n\n")
-  }
+  // Get environment variables
+	dbUser := os.Getenv("DB_USERNAME")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
 
-  // Load templates
-  tmpl, err := template.ParseGlob("templates/*.html")
-  if err != nil {
-    panic(err)
-  }
+  // Initialize database connection
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", dbUser, dbPassword, dbHost, dbPort, dbName)
+	db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
 
-  // Define routes
-  handleRoute("/", tmpl)
+	// Migrate the schema
+	db.AutoMigrate(&models.User{})
 
-  // Serve static files from the "public" directory
-  fs := http.FileServer(http.Dir("public"))
-  http.Handle("/public/", http.StripPrefix("/public/", fs))
-
-  http.ListenAndServe(":8080", nil)
+  // Define routes & run
+  routes.SetupRouter(db).Run(":8080")
 }
